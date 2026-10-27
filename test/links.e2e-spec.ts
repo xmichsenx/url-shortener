@@ -99,4 +99,18 @@ describe('Links (e2e)', () => {
       await api().get('/not-a-valid-code').expect(404);
     });
   });
+
+  describe('API docs', () => {
+    it('serves the OpenAPI spec with both endpoints', async () => {
+      const res = await api().get('/docs-json').expect(200);
+
+      expect(res.body.openapi).toMatch(/^3\./);
+      expect(res.body.paths['/links'].post).toBeDefined();
+      expect(res.body.paths['/{code}'].get.responses).toHaveProperty('302');
+    });
+
+    it('serves the Swagger UI', async () => {
+      await api().get('/docs').expect(200).expect('Content-Type', /html/);
+    });
+  });
 });

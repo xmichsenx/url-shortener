@@ -8,6 +8,8 @@ A URL shortener backend service built with TypeScript, NestJS and PostgreSQL.
 
 ## API
 
+Interactive docs (Swagger UI) are served at [`/docs`](http://localhost:3000/docs), and the raw OpenAPI spec at [`/docs-json`](http://localhost:3000/docs-json).
+
 ### `POST /links` - shorten a URL
 
 ```http
@@ -43,6 +45,7 @@ Responds with `302 Found` and the original URL in the `Location` header, or `404
 
 - [NestJS](https://nestjs.com/) on Node.js 24
 - PostgreSQL 18 with [Drizzle ORM](https://orm.drizzle.team/) and SQL migrations
+- OpenAPI docs with [@nestjs/swagger](https://docs.nestjs.com/openapi/introduction)
 - [Vitest](https://vitest.dev/) for unit tests, [Testcontainers](https://testcontainers.com/) for end-to-end tests against a real Postgres
 - GitHub Actions CI: format, lint, typecheck, unit tests, build, e2e tests
 
