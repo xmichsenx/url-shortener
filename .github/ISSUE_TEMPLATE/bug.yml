@@ -1,0 +1,11 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [fix]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, what happened instead, and how to reproduce it.
+    validations:
+      required: true
