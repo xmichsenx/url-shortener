@@ -5,8 +5,20 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # Majors are left out of the group so each one gets its own PR: a single
+      # breaking upgrade then can't block the safe minor and patch updates.
       dependencies:
         patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # The Nest CLI builds through TypeScript's programmatic compiler API,
+      # which TypeScript 7.0 doesn't ship (it's expected back in 7.1). Remove
+      # this once the Nest CLI supports TypeScript 7.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      # Must match the Node.js version in .nvmrc; bump both together by hand.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: chore
       include: scope
