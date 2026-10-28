@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/xmichsenx/url-shortener/actions/workflows/ci.yml/badge.svg)](https://github.com/xmichsenx/url-shortener/actions/workflows/ci.yml)
 
-A URL shortener backend service built with TypeScript, NestJS and PostgreSQL.
+A URL shortener backend service built with TypeScript, NestJS, PostgreSQL and Redis.
 
-🚧 Work in progress: the core shorten + redirect flow works; caching, analytics and rate limiting are next.
+🚧 Work in progress: shortening, redirects and caching work; analytics and rate limiting are next.
 
 ## API
 
@@ -32,7 +32,7 @@ Only `http` and `https` URLs up to 2048 characters are accepted. Invalid input r
 
 ### `GET /:code` - follow a short link
 
-Responds with `302 Found` and the original URL in the `Location` header, or `404` if the code doesn't exist.
+Responds with `302 Found` and the original URL in the `Location` header, or `404` if the code doesn't exist. Lookups go through a Redis cache before Postgres.
 
 ## Design decisions
 
@@ -41,12 +41,46 @@ Responds with `302 Found` and the original URL in the `Location` header, or `404
 - **302, not 301.** Browsers cache `301` redirects and stop hitting the server, which would make click analytics impossible later.
 - **Same URL, new code.** Shortening the same URL twice creates two links, so each one can later get its own owner, expiry and stats.
 
+### Redirect caching
+
+A shortener is read-heavy: each link is created once and followed many times, and a few popular links get most of the traffic. Redirects therefore use a **cache-aside** Redis cache:
+
+```
+GET /:code ──▶ Redis ──hit──▶ 302
+                 │
+                miss
+                 ▼
+             Postgres ──found──▶ 302, and cache code → URL (TTL 24h)
+                 │
+             not found ──▶ 404
+```
+
+- **Fail-open.** Redis is an optimisation, never a dependency. If it's down or slow, lookups fall back to Postgres: commands fail immediately while disconnected (no offline queue) and time out after 200 ms, so an outage can't stall redirects. An outage is logged once, not on every request. An e2e test stops Redis mid-run to prove it.
+- **The cache write isn't awaited.** The visitor gets their redirect without waiting for Redis to store it.
+- **No invalidation needed yet.** Links can't be edited or deleted, so a cached entry can't go stale. The TTL (`CACHE_TTL_SECONDS`, default 24h) keeps memory bounded to links that are actually being used.
+- **Unknown codes aren't cached.** Malformed codes are rejected before touching Redis or Postgres, but repeated lookups of well-formed unknown codes still reach Postgres. Caching misses briefly ("negative caching") is a possible next step.
+- **Optional.** Without `REDIS_URL` the app runs uncached, which keeps local setup simple.
+
+### Load test
+
+`npm run load-test` creates a link and requests it with 50 concurrent connections for 20 seconds ([autocannon](https://github.com/mcollina/autocannon), redirects not followed). Same build, run once without and once with `REDIS_URL`:
+
+| | Postgres only | With Redis cache |
+| --- | --- | --- |
+| Requests/s | 5,591 | **16,762** (3.0x) |
+| Latency p50 | 8 ms | **2 ms** |
+| Latency p99 | 13 ms | **5 ms** |
+| Errors | 0 | 0 |
+
+The app, Postgres, Redis and the load generator all ran on one Windows laptop (Postgres and Redis in Docker Desktop), so the absolute numbers are only indicative. Part of the gap is the Postgres connection pool (10 connections by default): with 50 concurrent requests, uncached lookups wait for a free connection, while cached ones skip the pool entirely. Taking that load off the database is the point of the cache.
+
 ## Tech stack
 
 - [NestJS](https://nestjs.com/) on Node.js 24
 - PostgreSQL 18 with [Drizzle ORM](https://orm.drizzle.team/) and SQL migrations
+- Redis 8 with [ioredis](https://github.com/redis/ioredis) for caching
 - OpenAPI docs with [@nestjs/swagger](https://docs.nestjs.com/openapi/introduction)
-- [Vitest](https://vitest.dev/) for unit tests, [Testcontainers](https://testcontainers.com/) for end-to-end tests against a real Postgres
+- [Vitest](https://vitest.dev/) for unit tests, [Testcontainers](https://testcontainers.com/) for end-to-end tests against real Postgres and Redis
 - GitHub Actions CI: format, lint, typecheck, unit tests, build, e2e tests
 
 ## Running locally
@@ -73,6 +107,7 @@ The API listens on `http://localhost:3000`.
 | `npm run lint` / `npm run typecheck` / `npm run format` | Code quality |
 | `npm run db:generate` | Generate a migration after changing `src/database/schema.ts` |
 | `npm run db:migrate` | Build and apply pending migrations |
+| `npm run load-test -- [baseUrl] [seconds]` | Load-test redirects against a running app |
 
 ## License
 
