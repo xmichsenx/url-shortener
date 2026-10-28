@@ -1,5 +1,6 @@
 import type { Link } from '../database/schema.js';
 import { CODE_PATTERN } from './code.js';
+import type { LinksCache } from './links.cache.js';
 import type { LinksRepository } from './links.repository.js';
 import { LinksService, MAX_CODE_ATTEMPTS } from './links.service.js';
 
@@ -14,8 +15,17 @@ function setup() {
     tryInsert: vi.fn<LinksRepository['tryInsert']>(),
     findByCode: vi.fn<LinksRepository['findByCode']>(),
   };
-  const service = new LinksService(repository as unknown as LinksRepository);
-  return { service, repository };
+  // An empty cache by default, so tests that don't care about caching see
+  // every lookup reach the repository.
+  const cache = {
+    get: vi.fn<LinksCache['get']>().mockResolvedValue(undefined),
+    set: vi.fn<LinksCache['set']>().mockResolvedValue(undefined),
+  };
+  const service = new LinksService(
+    repository as unknown as LinksRepository,
+    cache as unknown as LinksCache,
+  );
+  return { service, repository, cache };
 }
 
 describe('LinksService', () => {
@@ -57,26 +67,38 @@ describe('LinksService', () => {
   });
 
   describe('resolve', () => {
-    it('returns the URL for a known code', async () => {
-      const { service, repository } = setup();
+    it('serves a cached URL without querying the database', async () => {
+      const { service, repository, cache } = setup();
+      cache.get.mockResolvedValue(URL);
+
+      await expect(service.resolve('aZ3kP9x')).resolves.toBe(URL);
+      expect(repository.findByCode).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the database on a miss and caches the result', async () => {
+      const { service, repository, cache } = setup();
       repository.findByCode.mockResolvedValue(makeLink('aZ3kP9x'));
 
       await expect(service.resolve('aZ3kP9x')).resolves.toBe(URL);
+      expect(repository.findByCode).toHaveBeenCalledWith('aZ3kP9x');
+      expect(cache.set).toHaveBeenCalledWith('aZ3kP9x', URL);
     });
 
-    it('returns undefined for an unknown code', async () => {
-      const { service, repository } = setup();
+    it('returns undefined for an unknown code and caches nothing', async () => {
+      const { service, repository, cache } = setup();
       repository.findByCode.mockResolvedValue(undefined);
 
       await expect(service.resolve('aZ3kP9x')).resolves.toBeUndefined();
+      expect(cache.set).not.toHaveBeenCalled();
     });
 
     it.each(['short', 'toolongcode', 'bad-chr', 'favicon.ico'])(
-      'skips the database for malformed code %s',
+      'skips the cache and database for malformed code %s',
       async (code) => {
-        const { service, repository } = setup();
+        const { service, repository, cache } = setup();
 
         await expect(service.resolve(code)).resolves.toBeUndefined();
+        expect(cache.get).not.toHaveBeenCalled();
         expect(repository.findByCode).not.toHaveBeenCalled();
       },
     );
