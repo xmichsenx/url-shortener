@@ -53,7 +53,7 @@
     "@types/node": "^24.0.0",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
-    "@vitest/coverage-v8": "^4.1.2",
+    "@vitest/coverage-v8": "^5.0.5",
     "autocannon": "^8.0.0",
     "drizzle-kit": "^0.31.11",
     "oxlint": "^1.58.0",
